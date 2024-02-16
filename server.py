@@ -2,6 +2,7 @@ import argparse
 import socketserver
 import json
 import base64
+from packet import Packet
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.Random import get_random_bytes
@@ -31,6 +32,7 @@ session_key = get_random_bytes(16)
 
 
 class TCPHandler(socketserver.BaseRequestHandler):
+    cipher_rsa = PKCS1_OAEP.new(key)
     def recv(self, bufsize: int) -> str:
         """
         Receives data from a client connection.
@@ -42,7 +44,7 @@ class TCPHandler(socketserver.BaseRequestHandler):
         Returns:
             str: The (decoded) received data.
         """
-        data = self.request.recv(size).decode()
+        data = self.request.recv(bufsize).decode()
         return data
 
     def send(self, data: bytes) -> None:
@@ -56,65 +58,65 @@ class TCPHandler(socketserver.BaseRequestHandler):
         """
         self.request.sendall(data)
 
-    def h_unpack_packet(self, packet: bytes) -> dict[bytes]:
-        """
-        Unpacks a handshake packet.
+    # def h_unpack_packet(self, packet: bytes) -> dict[bytes]:
+    #     """
+    #     Unpacks a handshake packet.
 
-        Decodes the JSON packet, then decodes the base64-encoded data, and returns the result as a dictionary.
+    #     Decodes the JSON packet, then decodes the base64-encoded data, and returns the result as a dictionary.
 
-        Args:
-            packet (str): The JSON packet.
+    #     Args:
+    #         packet (str): The JSON packet.
 
-        Returns:
-            dict[bytes]: The unpacked data.
-        """
-        payload = json.loads(packet)
-        data = {
-            "enc_session_key": base64.b64decode(payload["enc_session_key"]),
-            "nonce": base64.b64decode(payload["nonce"]),
-        }
+    #     Returns:
+    #         dict[bytes]: The unpacked data.
+    #     """
+    #     payload = json.loads(packet)
+    #     data = {
+    #         "enc_session_key": base64.b64decode(payload["enc_session_key"]),
+    #         "nonce": base64.b64decode(payload["nonce"]),
+    #     }
 
-        return data
+    #     return data
 
-    def unpack_packet(self, packet: bytes) -> dict[bytes]:
-        """
-        Unpacks a message packet.
+    # def unpack_packet(self, packet: bytes) -> dict[bytes]:
+    #     """
+    #     Unpacks a message packet.
 
-        Decodes the JSON packet, then decodes the base64-encoded data, and returns the result as a dictionary.
+    #     Decodes the JSON packet, then decodes the base64-encoded data, and returns the result as a dictionary.
 
-        Args:
-            packet (bytes): The JSON packet.
+    #     Args:
+    #         packet (bytes): The JSON packet.
 
-        Returns:
-            dict[bytes]: The unpacked data.
-        """
-        payload = json.loads(packet)
-        data = {
-            "ciphertext": base64.b64decode(payload["ciphertext"]),
-            "tag": base64.b64decode(payload["tag"]),
-        }
+    #     Returns:
+    #         dict[bytes]: The unpacked data.
+    #     """
+    #     payload = json.loads(packet)
+    #     data = {
+    #         "ciphertext": base64.b64decode(payload["ciphertext"]),
+    #         "tag": base64.b64decode(payload["tag"]),
+    #     }
 
-        return data
+    #     return data
 
-    def make_message_packet(self, ciphertext: bytes, tag: bytes) -> bytes:
-        """
-        Creates a message packet.
+    # def make_message_packet(self, ciphertext: bytes, tag: bytes) -> bytes:
+    #     """
+    #     Creates a message packet.
 
-        Takes the ciphertext and tag, base64 encodes them, and then packs them into a JSON string.
+    #     Takes the ciphertext and tag, base64 encodes them, and then packs them into a JSON string.
 
-        Args:
-            ciphertext (bytes): The ciphertext.
-            tag (bytes): The tag.
+    #     Args:
+    #         ciphertext (bytes): The ciphertext.
+    #         tag (bytes): The tag.
 
-        Returns:
-            bytes: The JSON packet.
-        """
-        payload = {
-            "ciphertext": base64.b64encode(ciphertext).decode(),
-            "tag": base64.b64encode(tag).decode(),
-        }
+    #     Returns:
+    #         bytes: The JSON packet.
+    #     """
+    #     payload = {
+    #         "ciphertext": base64.b64encode(ciphertext).decode(),
+    #         "tag": base64.b64encode(tag).decode(),
+    #     }
 
-        return json.dumps(payload)
+    #     return json.dumps(payload)
 
     def encrypt(
         self, session_key: bytes, nonce: bytes, data: bytes
@@ -166,14 +168,12 @@ class TCPHandler(socketserver.BaseRequestHandler):
         It then enters a loop where it continuously receives encrypted messages from the client, decrypts them, and sends back encrypted responses.
         """
         print("[*] Received connection from: ", self.client_address[0])
-        cipher_rsa = PKCS1_OAEP.new(key)
-
-        self.send(public_key)  # END OF KEY EXCHANGE
+        self.send(public_key)
         print("[*] Sent RSA public key")
 
         packet = self.recv(1024)
-        data = self.h_unpack_packet(packet)
-        session_key, nonce = cipher_rsa.decrypt(data["enc_session_key"]), data["nonce"]
+        data = Packet(unpack_data=packet).unpack()
+        session_key, nonce = self.cipher_rsa.decrypt(data["enc_session_key"]), data["nonce"]
         print("[*] Decrypted session key and nonce. Creating cipher . . .")
 
         # Create matching AES cipher with the AES session key and nonce
@@ -182,7 +182,7 @@ class TCPHandler(socketserver.BaseRequestHandler):
         self.send(b"OP_EOH")
 
         while True:
-            unpacked_data = self.unpack_packet(self.recv(1024))
+            unpacked_data = Packet(unpack_data=self.recv(1024)).unpack()
             message = self.decrypt(
                 session_key, nonce, unpacked_data["ciphertext"], unpacked_data["tag"]
             )
@@ -191,14 +191,12 @@ class TCPHandler(socketserver.BaseRequestHandler):
             message = str(input("[>] "))
 
             ciphertext, tag = self.encrypt(session_key, nonce, message.encode())
-            packed_payload = self.make_message_packet(ciphertext, tag)
+            packed_payload = Packet(ciphertext=ciphertext, tag=tag).pack()
             self.send(packed_payload.encode())
 
 
 with socketserver.TCPServer(HOST_ADDR, TCPHandler) as server:
     try:
-        # Activate the server; this will keep running until you
-        # interrupt the program with Ctrl-C
         server.serve_forever()
     except KeyboardInterrupt:
         print("[>w<] Received keyboard interrupt. Exiting.")
