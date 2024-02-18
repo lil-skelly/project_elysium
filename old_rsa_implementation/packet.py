@@ -7,6 +7,7 @@ class Packet:
         self.pack_data = kwargs
         self.unpack_data = unpack_data
 
+
     def pack(self) -> str:
         """
         This method is used to pack the data of the object into a JSON formatted string. 

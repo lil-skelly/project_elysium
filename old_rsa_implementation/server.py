@@ -58,66 +58,6 @@ class TCPHandler(socketserver.BaseRequestHandler):
         """
         self.request.sendall(data)
 
-    # def h_unpack_packet(self, packet: bytes) -> dict[bytes]:
-    #     """
-    #     Unpacks a handshake packet.
-
-    #     Decodes the JSON packet, then decodes the base64-encoded data, and returns the result as a dictionary.
-
-    #     Args:
-    #         packet (str): The JSON packet.
-
-    #     Returns:
-    #         dict[bytes]: The unpacked data.
-    #     """
-    #     payload = json.loads(packet)
-    #     data = {
-    #         "enc_session_key": base64.b64decode(payload["enc_session_key"]),
-    #         "nonce": base64.b64decode(payload["nonce"]),
-    #     }
-
-    #     return data
-
-    # def unpack_packet(self, packet: bytes) -> dict[bytes]:
-    #     """
-    #     Unpacks a message packet.
-
-    #     Decodes the JSON packet, then decodes the base64-encoded data, and returns the result as a dictionary.
-
-    #     Args:
-    #         packet (bytes): The JSON packet.
-
-    #     Returns:
-    #         dict[bytes]: The unpacked data.
-    #     """
-    #     payload = json.loads(packet)
-    #     data = {
-    #         "ciphertext": base64.b64decode(payload["ciphertext"]),
-    #         "tag": base64.b64decode(payload["tag"]),
-    #     }
-
-    #     return data
-
-    # def make_message_packet(self, ciphertext: bytes, tag: bytes) -> bytes:
-    #     """
-    #     Creates a message packet.
-
-    #     Takes the ciphertext and tag, base64 encodes them, and then packs them into a JSON string.
-
-    #     Args:
-    #         ciphertext (bytes): The ciphertext.
-    #         tag (bytes): The tag.
-
-    #     Returns:
-    #         bytes: The JSON packet.
-    #     """
-    #     payload = {
-    #         "ciphertext": base64.b64encode(ciphertext).decode(),
-    #         "tag": base64.b64encode(tag).decode(),
-    #     }
-
-    #     return json.dumps(payload)
-
     def encrypt(
         self, session_key: bytes, nonce: bytes, data: bytes
     ) -> tuple[bytes, bytes]:

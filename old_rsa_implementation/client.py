@@ -7,6 +7,11 @@ from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.Random import get_random_bytes
 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import dh
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "-H",
@@ -23,6 +28,7 @@ parser.add_argument(
     help="Port to use when connecting to the server"
 )
 args = parser.parse_args()
+# TODO: Validate the IP address
 
 HOST_ADDR = (args.host, args.port)
 
@@ -68,78 +74,51 @@ def decrypt(session_key: bytes, nonce: bytes, ciphertext: bytes, tag: bytes) -> 
     message = cipher_aes.decrypt_and_verify(ciphertext, tag)
     return message
 
-# def h_make_packet(enc_session_key: bytes, nonce: bytes) -> str:
-#     """
-#     Creates a handshake packet.
-#     This function takes the RSA public key and nonce, base64 encodes them, and then packs them into a JSON string.
+def handle_rsa_key(sock: socket.socket) -> tuple[bytes]:
+    """
+    Receives the server's RSA public key and encrypts the session key with it.
 
-#     Args:
-#         key (bytes): The RSA public key.
-#         nonce (bytes): The nonce.
+    Args:
+        sock (socket.socket): The socket object.
+    
+    Returns:
+        tuple[bytes]: The recipient's public key, the rsa cipher and the encrypted session key.
+    """
+    try:
+        recipient_key = RSA.import_key(sock.recv(1024))
+        print("[*] Received servers' RSA public key.")
 
-#     Returns:
-#         str: The JSON packet.
-#     """
-#     payload = {
-#         "enc_session_key": base64.b64encode(enc_session_key).decode(),
-#         "nonce": base64.b64encode(cipher_aes.nonce).decode(),
-#     }
-#     return json.dumps(payload)
+        # Encrypt the session key with the public RSA key
+        cipher_rsa = PKCS1_OAEP.new(recipient_key)
+        enc_session_key = cipher_rsa.encrypt(session_key)
 
-# def make_message_packet(ciphertext: bytes, tag: bytes) -> str:
-#     """
-#     Creates a message packet.
+        return recipient_key, cipher_rsa, enc_session_key
+    except socket.error as e:
+        print(f"[>w<] Error: Could not receive the server's RSA public key. {e}")
+        sock.close()
+        exit(1)
+    
+def handle_handshake(sock: socket.socket, enc_session_key, nonce) -> None:
+    try:
+        packed_payload = Packet(enc_session_key=enc_session_key, nonce=nonce).pack().encode()
+        sock.sendall(packed_payload)
+        data = sock.recv(1024) # Wait to get the end of handshake
+        print("[*] Handshake completed.")
+    except socket.error as e:
+        print(f"[>w<] Error: Could not send the encrypted session key. {e}")
+        sock.close()
+        exit(1)
 
-#     Takes the ciphertext and tag, base64 encodes them, and then packs them into a JSON string.
-
-#     Args:
-#         ciphertext (bytes): The ciphertext.
-#         tag (bytes): The ciphertexts' tag.
-
-#     Returns:
-#         str: The JSON packet.
-#     """
-#     payload = {
-#         "ciphertext": base64.b64encode(ciphertext).decode(),
-#         "tag": base64.b64encode(tag).decode()
-#     }
-
-#     return json.dumps(payload)
-
-# def unpack_packet(packet: bytes) -> dict[bytes]:
-#         """
-#         Unpacks a message packet.
-
-#         Decodes the JSON packet, then decodes the base64-encoded data, and returns the result as a dictionary.
-
-#         Args:
-#             packet (bytes): The JSON packet.
-
-#         Returns:
-#             dict[bytes]: The unpacked data.
-#         """
-#         payload = json.loads(packet)
-#         data = {
-#             "ciphertext": base64.b64decode(payload["ciphertext"]),
-#             "tag": base64.b64decode(payload["tag"]),
-#         }
-
-#         return data
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    cipher_aes = AES.new(session_key, AES.MODE_EAX)
+
     sock.connect(HOST_ADDR)
     print("Initiated connection with the server.")
-    recipient_key = RSA.import_key(sock.recv(1024))
-    print("[*] Received servers' RSA public key.")
-
-    # Encrypt the session key with the public RSA key
-    cipher_rsa = PKCS1_OAEP.new(recipient_key)
-    enc_session_key = cipher_rsa.encrypt(session_key)
-
-    cipher_aes = AES.new(session_key, AES.MODE_EAX)
-    packed_payload = Packet(enc_session_key=enc_session_key, nonce=cipher_aes.nonce).pack().encode()
-    sock.sendall(packed_payload)
-    data = sock.recv(1024) # Wait to get the end of handshake
+    # Receive the server's RSA public key and encrypt the session key with it
+    recipient_key, cipher_rsa, enc_session_key = handle_rsa_key(sock)
+    # Generate and send the handshake packet
+    handle_handshake(sock, enc_session_key, cipher_aes.nonce)
 
     while True:
         message = str(input("[>] ")).encode()
