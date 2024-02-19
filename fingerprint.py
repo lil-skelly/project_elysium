@@ -5,8 +5,10 @@ import json
 import socket
 import logging
 import os
+import string
 
 logging.basicConfig(level=logging.INFO)
+
 
 def get_user_confirmation(prompt: str):
     while True:
@@ -15,71 +17,98 @@ def get_user_confirmation(prompt: str):
             return response == "y"
         else:
             print("[>w<] Invalid input. Enter 'y' or 'n'.")
-        
+
+
 class Fingerprint:
     def __init__(
         self,
-        algorithm: hashes.HashAlgorithm, 
+        algorithm: hashes.HashAlgorithm,
         backend=None,
-        known_fingerprints: str = None,
+        known_path: str = None,
     ) -> None:
-        self.algorithm = algorithm
-        self.backend = backend
+        self.algorithm = algorithm  # Hashing algorithm
+        self.backend = backend  # Optional backend
 
-        if not known_fingerprints or not os.path.exists(known_fingerprints):
-            logging.error("[!] Invalid known_fingerprints path. <verify key> will follow manual verification.")
+        self.fingerprint = None  # The fingerprints actual fingerprint
+
+        self._key = None  # key bytes (private attr. use Fingerprint.key)
+
+    @property
+    def key(self):
+        return self._key
+
+    @key.setter
+    def key(self, key: bytes):
+        if isinstance(key, bytes):
+            self._key = key
+            self.create_fingerprint()
         else:
-            with open(known_fingerprints, "r") as fd:
-                self.known_fingerprints = set()
-                for print_ in fd.readlines():
-                    self.known_fingerprints.add(print_.strip())
+            raise ValueError(f"[!] <key> must be of type bytes ({type(key)} given)")
 
-    def verify_key(self) -> None:
+    def verify_fingerprint(self) -> None:
+        if not self.fingerprint:
+            self.create_fingerprint()
+
         logging.info(f"[*] Party's key fingerprint:\n{self.fingerprint}")
-        if self.known_fingerprints:
-            for print_ in self.known_fingerprints:
-                data = print_.split("   ")
-                if self.fingerprint == data[1].strip():
-                    logging.info("[*] Fingerprint found in provided <known_fingerprints> file.")
-                    
-                    if not get_user_confirmation(f"[?] Is {data[0]} the person you are trying to contact [Y/n] "):
-                        logging.critical(f"[HIJACK] {data[0]} is trying to intercept your communication.")
-                        logging.critical("[!] Exiting to prevent *potential* security breach. >Investigate immediatly<")
-                        return False
-                    else:
-                        return True
-
-            
-        if not get_user_confirmation("[?] Do you recognize this SHA-256 fingerprint of the key? [Y/n] "):
-            logging.critical("[HIJACK] Someone is trying to intercept your communication.")
-            logging.critical("[!] Exiting to prevent *potential* security breach. >Investigate immediatly<")
+        if not get_user_confirmation(
+            "[?] Do you recognize this SHA-256 fingerprint of the key? [Y/n] "
+        ):
+            logging.critical(
+                "[HIJACK] Someone is trying to intercept your communication."
+            )
+            logging.critical(
+                "[!] Exiting to prevent *potential* security breach. >Investigate immediatly<"
+            )
             return False
-                
+
         return True
 
-    def create_fingerprint(self, key: bytes) -> None:
-        hasher = hashes.Hash(
-            algorithm=self.algorithm,
-            backend=self.backend
-        )
-        hasher.update(key)
-        self.fingerprint = base64.b64encode(hasher.finalize()).decode()
+    def create_fingerprint(self) -> None:
+        if self.key is not None:
+            hasher = hashes.Hash(algorithm=self.algorithm, backend=self.backend)
+            hasher.update(self.key)
+            self.fingerprint = base64.b64encode(hasher.finalize()).decode()
+        else:
+            raise ValueError("[!] Can not create fingerprint from empty <key>")
+
+    def bubble_babble(self):
+        VOWELS = list('aeiouy')
+        CONSONANTS = list('bcdfghklmnprstvzx')
+        mval = [ord(str(x)) for x in self.fingerprint]
+        seed = 1
+        mlen = len(mval)
+        rounds = mlen // 2 + 1
+        encparts = ['x']
+        eextend = encparts.extend
+        for i in range(rounds):
+            if (i + 1 < rounds) or (mlen % 2 != 0):
+                imval2i = int(mval[2 * i])
+                idx0 = (((imval2i >> 6) & 3) + seed) % 6
+                idx1 = (imval2i >> 2) & 15
+                idx2 = ((imval2i & 3) + seed // 6) % 6
+                eextend([VOWELS[idx0], CONSONANTS[idx1], VOWELS[idx2]])
+                if (i + 1 < rounds):
+                    imval2i1 = int(mval[2 * i + 1])
+                    idx3 = (imval2i1 >> 4) & 15
+                    idx4 = imval2i1 & 15
+                    eextend([CONSONANTS[idx3], '-', CONSONANTS[idx4]])
+                    seed = (seed * 5 + imval2i * 7 + imval2i1) % 36
+            else:
+                idx0 = seed % 6
+                idx1 = 16
+                idx2 = seed // 6
+                eextend([VOWELS[idx0], CONSONANTS[idx1], VOWELS[idx2]])
+        eextend(['x'])
+        encoded = ''.join(encparts)
+        return encoded
 
 
-fingerprint = Fingerprint(
+
+print_class = Fingerprint(
     algorithm=hashes.SHA256(),
     backend=default_backend(),
-    known_fingerprints="./known_fingerprints"
 )
-with open("./known_fingerprints", "w") as fd:
-    pass
-    
-with open("./known_fingerprints", "w") as fd:
-    for key in ["hello", "love", "dog", "cat", "mary", "john"]:
-        fingerprint.create_fingerprint(key.encode())
-        logging.info(fingerprint.fingerprint)
-        packet = f"{key}    {fingerprint.fingerprint}\n"
-        fd.write(packet) 
 
-fingerprint.create_fingerprint(b"john")
-fingerprint.verify_key()
+print_class.key = b"john"
+print_class.create_fingerprint()
+print(print_class.bubble_babble())

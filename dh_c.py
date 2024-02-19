@@ -8,8 +8,14 @@ import fingerprint
 import base64
 import logging
 import socket
+import argparse
 
 logging.basicConfig(level=logging.INFO)
+parser = argparse.ArgumentParser()
+parser.add_argument("--host", type=str, required=False, default="127.0.0.1")
+parser.add_argument("--port", type=int, required=False, default=44454)
+
+args = parser.parse_args()
 
 
 def handle_serialized_params(
@@ -29,14 +35,19 @@ def handle_serialized_params(
     )
     private_key = parameters.generate_private_key()
     public_key = private_key.public_key()
-
+    p_fingerprint = fingerprint.Fingerprint(hashes.SHA256(), default_backend())
+    p_fingerprint.key = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    logging.info(
+        f"[*] Your public key's fingerprint:\n{p_fingerprint.create_fingerprint()}"
+    )
     return private_key, public_key
 
 
 def handle_key_exchange(
-    client: socket.socket,
-    private_key: dh.DHPrivateKey, 
-    public_key: dh.DHPublicKey
+    client: socket.socket, private_key: dh.DHPrivateKey, public_key: dh.DHPublicKey
 ) -> bytes:
     """
     Handles the key exchange process.
@@ -54,12 +65,14 @@ def handle_key_exchange(
             )
         )
         logging.info("[*] Sent public key to server")
-        
+
         server_public_key = client.recv(1024)
         logging.info("[*] Received server's public key")
 
         # Authenticate party's public key fingerprint (SHA-256)
-        fingerprint.verify_public_key(client, server_public_key)
+        p_fingerprint = fingerprint.Fingerprint(hashes.SHA256(), default_backend())
+        p_fingerprint.key = server_public_key
+        p_fingerprint.verify_fingerprint()
 
         server_public_key = serialization.load_pem_public_key(
             server_public_key, backend=default_backend()
@@ -69,12 +82,14 @@ def handle_key_exchange(
         return shared_key
     except socket.error as e:
         logging.error(f"[>w<] {e}")
-        logging.critical("[!!!] There is a **possibility** the handshake was hijacked.\n(Please do not take this message too seriously)")
+        logging.critical(
+            "[!!!] There is a **possibility** the handshake was hijacked.\n(Please do not take this message too seriously)"
+        )
 
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
     try:
-        client.connect(("127.0.0.1", 44454))
+        client.connect((args.host, args.port))
         logging.info("[*] Connected to server")
 
         serialized_parameters = client.recv(512)
@@ -83,7 +98,6 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
         private_key, public_key = handle_serialized_params(serialized_parameters)
         logging.info("[*] Loaded parameters and generated key pair")
 
-        
         shared_key = handle_key_exchange(client, private_key, public_key)
         logging.info("[*] Successfull exchange")
 
