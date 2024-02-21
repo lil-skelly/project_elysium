@@ -5,7 +5,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 import base64
 import fingerprint
-import socket
+import asyncio
 import logging
 import argparse
 
@@ -16,7 +16,7 @@ parser.add_argument("--port", type=int, required=False, default=44454)
 args = parser.parse_args()
 
 
-def generate_and_serialize_params() -> dict[dh.DHPrivateKey, dh.DHPublicKey, bytes]:
+async def generate_and_serialize_params() -> dict[dh.DHPrivateKey, dh.DHPublicKey, bytes]:
     """
     Generates a Diffie-Hellman key pair and serializes the parameters.
 
@@ -36,6 +36,7 @@ def generate_and_serialize_params() -> dict[dh.DHPrivateKey, dh.DHPublicKey, byt
     private_key = parameters.generate_private_key()
     public_key = private_key.public_key()
     logging.info("[*] Generated key pair")
+
     p_fingerprint = fingerprint.Fingerprint(hashes.SHA256(), default_backend())
     p_fingerprint.key = public_key.public_bytes(
         encoding=serialization.Encoding.PEM,
@@ -47,8 +48,6 @@ def generate_and_serialize_params() -> dict[dh.DHPrivateKey, dh.DHPublicKey, byt
         encoding=serialization.Encoding.PEM, format=serialization.ParameterFormat.PKCS3
     )
     logging.info("[*] Serialized parameters")
-    conn.sendall(serialized_parameters)
-    logging.info("[*] Sent parameters to peer")
 
     return {
         "private_key": private_key,
@@ -58,79 +57,49 @@ def generate_and_serialize_params() -> dict[dh.DHPrivateKey, dh.DHPublicKey, byt
     }
 
 
-def establish_connection(server: socket.socket) -> tuple:
-    """
-    Establishes a connection with a client using the provided server socket.
-
-    This function sets the SO_REUSEADDR socket option to allow the reuse of local addresses. 
-    It then binds the server to the specified host and port, and starts listening for an incoming connection. 
-    Once a connection is established, it accepts the connection and returns the connection object and the client's address.
-
-    Args:
-        server (socket.socket): The server socket to use to establish the connection.
-
-    Returns:
-        tuple: A tuple containing the connection socket and the client's address.
-    """
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((args.host, args.port))
-    logging.info("[*] Binded to address")
-
-    server.listen(1)
-    logging.info("[*] Listening for connection")
-
-    conn, addr = server.accept()
-    logging.info(f"[*] Got connection from {addr}")
-
-    return conn, addr
-
-
-def handle_key_exchange(
-    peer_public_key: dh.DHPublicKey, private_key: dh.DHPrivateKey
+async def handle_key_exchange(
+    writer,
+    peer_public_key: dh.DHPublicKey,
+    public_key: dh.DHPublicKey,
+    private_key: dh.DHPrivateKey
 ) -> bytes:
     peer_public_key = serialization.load_pem_public_key(
         peer_public_key, backend=default_backend()
     )
-    conn.sendall(
+    writer.write(
         public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
     )
+    await writer.drain()
     logging.info("[*] Sent public key to peer")
     shared_key = private_key.exchange(peer_public_key)
 
     return shared_key
 
-def verify_keys(socket: socket.socket, shared_key: bytes):
-    key_fingerprint = fingerprint.Fingerprint(
-        hashes.SHA256(),
-        backend=default_backend()
-    )
-    key_fingerprint.key = shared_key
-    key_fingerprint = key_fingerprint.bubble_babble().encode()
-    socket.sendall(key_fingerprint)
-    c_key_fingerprint = socket.recv(1024)
-    print(key_fingerprint)
-    print(c_key_fingerprint)
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+async def handler(reader, writer):
     try:
-        conn, addr = establish_connection(server)
 
-        dh_data = generate_and_serialize_params()
+        dh_data = await generate_and_serialize_params()
         private_key = dh_data["private_key"]
         public_key = dh_data["public_key"]
         p_fingerprint = dh_data["fingerprint"]
+        serialized_parameters = dh_data["serialized_params"]
 
-        peer_public_key = conn.recv(1024)
+        writer.write(serialized_parameters)
+        await writer.drain()
+        logging.info("[*] Sent parameters to peer")
+
+
+        peer_public_key = await reader.read(1024)
         logging.info("[*] Received client's public key")
 
         # Authenticate party's public key fingerprint (SHA-256)
         p_fingerprint.key = peer_public_key
         p_fingerprint.verify_fingerprint()
 
-        shared_key = handle_key_exchange(peer_public_key, private_key)
-        verify_keys(server, shared_key)
+        shared_key = await handle_key_exchange(writer, peer_public_key, public_key, private_key)
         logging.info("[*] Keys match. Succesfull key exchange.")
 
 
@@ -140,11 +109,23 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
             info=None,
             salt=None,
         ).derive(shared_key)
+        writer.close()
+        await writer.wait_closed()
 
     except KeyboardInterrupt:
         logging.error("[>w<] Received keyboard interrupt. Exiting")
-    except socket.error as e:
-        logging.error(f"[>w<] {e}")
-        logging.critical(
-            "[!!!] There is a **possibility** the channel was hijacked.\n(Please do not take this message too seriously)"
-        )
+        writer.close()
+        await writer.wait_closed()
+        exit(1)
+
+async def main():
+    server = await asyncio.start_server(
+        main,
+        args.host,
+        args.port
+    )
+    addrs = ', '.join(str(sock.getsockname()) for sock in server.sockets)
+    logging.info(f'[*] Serving on {addrs}')
+    async with server:
+        await server.serve_forever()
+asyncio.run(main())

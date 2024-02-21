@@ -24,7 +24,6 @@ class Fingerprint:
         self,
         algorithm: hashes.HashAlgorithm,
         backend=None,
-        known_path: str = None,
     ) -> None:
         self.algorithm = algorithm  # Hashing algorithm
         self.backend = backend  # Optional backend
@@ -46,10 +45,7 @@ class Fingerprint:
             raise ValueError(f"[!] <key> must be of type bytes ({type(key)} given)")
 
     def verify_fingerprint(self) -> None:
-        if not self.fingerprint:
-            self.create_fingerprint()
-
-        logging.info(f"[*] Party's key fingerprint:\n{self.fingerprint}")
+        logging.info(f"[*] Party's key fingerprint:\n{self.bubble_babble()}")
         if not get_user_confirmation(
             "[?] Do you recognize this SHA-256 fingerprint of the key? [Y/n] "
         ):
@@ -64,14 +60,11 @@ class Fingerprint:
         return True
 
     def create_fingerprint(self) -> None:
-        if self.key is not None:
-            hasher = hashes.Hash(algorithm=self.algorithm, backend=self.backend)
-            hasher.update(self.key)
-            self.fingerprint = base64.b64encode(hasher.finalize()).decode()
-        else:
-            raise ValueError("[!] Can not create fingerprint from empty <key>")
+        hasher = hashes.Hash(algorithm=self.algorithm, backend=self.backend)
+        hasher.update(self.key)
+        self.fingerprint = base64.b64encode(hasher.finalize()).decode()
 
-    def bubble_babble(self):
+    def bubble_babble(self) -> str:
         VOWELS = list('aeiouy')
         CONSONANTS = list('bcdfghklmnprstvzx')
         mval = [ord(str(x)) for x in self.fingerprint]
@@ -101,14 +94,3 @@ class Fingerprint:
         eextend(['x'])
         encoded = ''.join(encparts)
         return encoded
-
-
-
-print_class = Fingerprint(
-    algorithm=hashes.SHA256(),
-    backend=default_backend(),
-)
-
-print_class.key = b"john"
-print_class.create_fingerprint()
-print(print_class.bubble_babble())
