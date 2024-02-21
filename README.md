@@ -13,7 +13,7 @@ If such an interception is carried out successfully, it compromises the entirety
 undermining both the authenticity and the integrity of the messages. <br>
 
 In an attempt to overcome the aforementioned vulnerability, the protocol relies on trusted anchors, secondary secure channels to be exact. <br>
-Both parties are given a (Bubble Babble)[] encoded version of their pulic key which is then securely exchanged via a secondary channel. <br>
+Both parties are given a (Bubble Babble)[https://bohwaz.net/archives/web/Bubble_Babble.html] encoded version of their pulic key which is then securely exchanged via a secondary channel. <br>
 Upon receipt of the other party's public key, the protocol recalculates the fingerprint (utilizing **SHA-256** and subsequently **Bubble Babble** one-way encoding) of the received key and presents it to the user for verification. <br>
 This approach delegates the responsibility of verification to the user, providing a robust countermeasure against potential adversaries.
 # Advantages/Disadvantages
