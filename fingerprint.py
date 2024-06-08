@@ -10,7 +10,7 @@ import string
 logging.basicConfig(level=logging.INFO)
 
 
-def get_user_confirmation(prompt: str):
+def get_user_confirmation(prompt: str) -> True:
     while True:
         response = input(prompt).lower()
         if response in {"y", "n"}:
@@ -44,10 +44,10 @@ class Fingerprint:
         else:
             raise ValueError(f"[!] <key> must be of type bytes ({type(key)} given)")
 
-    def verify_fingerprint(self) -> None:
+    def verify_fingerprint(self):
         logging.info(f"[*] Party's key fingerprint:\n{self.bubble_babble()}")
         if not get_user_confirmation(
-            "[?] Do you recognize this SHA-256 fingerprint of the key? [Y/n] "
+            "[?] Do you recognize this SHA-256 fingerprint of the key? [y/n] "
         ):
             logging.critical(
                 "[HIJACK] Someone is trying to intercept your communication."
@@ -55,9 +55,7 @@ class Fingerprint:
             logging.critical(
                 "[!] Exiting to prevent *potential* security breach. >Investigate immediatly<"
             )
-            return False
-
-        return True
+            exit(1)
 
     def create_fingerprint(self) -> None:
         hasher = hashes.Hash(algorithm=self.algorithm, backend=self.backend)
