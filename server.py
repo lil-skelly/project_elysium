@@ -42,12 +42,10 @@ class Server:
 
         # AES
         self._aes_key_size: Literal[128, 192, 256] = 256
-        self.iv: Optional[bytes] = None
+        self.iv: bytes = secrets.token_bytes(16)
         self.cipher: Optional[Cipher] = None
         self.encryptor: Optional[CipherContext] = None
         self.decryptor: Optional[CipherContext] = None
-        self.iv = secrets.token_bytes(16)
-
 
     @property
     def public_fingerprint(self) -> fingerprint.Fingerprint | None:
@@ -85,7 +83,7 @@ class Server:
                 logging.info(f"Client connection from {client_ip}:{client_port} closed")
 
     async def message_loop(self) -> None: ...
-        
+
     async def establish_secure_channel(self) -> None:
         """Handles the establishment of a secure communication channel."""
         self.generate_and_serialize_params()
