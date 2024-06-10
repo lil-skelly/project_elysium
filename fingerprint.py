@@ -1,11 +1,7 @@
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.backends import default_backend
 import base64
-import json
-import socket
 import logging
-import os
-import string
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,12 +19,12 @@ class Fingerprint:
     def __init__(
         self,
         algorithm: hashes.HashAlgorithm,
-        backend=None,
+        backend = None,
     ) -> None:
         self.algorithm = algorithm  # Hashing algorithm
         self.backend = backend  # Optional backend
 
-        self.fingerprint = None  # The fingerprints actual fingerprint
+        self.fingerprint: Optional[str] = None  # The fingerprints actual fingerprint
 
         self._key = None  # key bytes (private attr. use Fingerprint.key)
 
