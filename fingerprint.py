@@ -1,32 +1,19 @@
-from cryptography.hazmat.primitives import hashes
 import base64
 import logging
 from typing import Optional
+from cryptography.hazmat.primitives import hashes
+import utils
+
 
 logging.basicConfig(level=logging.INFO)
 
-
-def get_user_confirmation(prompt: str) -> True:
-    while True:
-        response = input(prompt).lower()
-        if response in {"y", "n"}:
-            return response == "y"
-        else:
-            print("[>w<] Invalid input. Enter 'y' or 'n'.")
-
-
 class Fingerprint:
-    def __init__(
-        self,
-        algorithm: hashes.HashAlgorithm,
-        backend = None,
-    ) -> None:
-        self.algorithm = algorithm  # Hashing algorithm
-        self.backend = backend  # Optional backend
+    """Class which represents the fingerprint of a public key."""
+    def __init__(self, algorithm: hashes.HashAlgorithm) -> None:
+        self.algorithm: hashes.HashAlgorithm = algorithm  # Hashing algorithm
 
-        self.fingerprint: Optional[str] = None  # The fingerprints actual fingerprint
-
-        self._key = None  # key bytes (private attr. use Fingerprint.key)
+        self.fingerprint: Optional[str] = None  # The actual fingerprint
+        self._key: Optional[bytes] = None  # key bytes (private attr. use Fingerprint.key)
 
     @property
     def key(self):
@@ -34,15 +21,16 @@ class Fingerprint:
 
     @key.setter
     def key(self, key: bytes):
-        if isinstance(key, bytes):
-            self._key = key
-            self.create_fingerprint()
-        else:
+        if not isinstance(key, bytes):
             raise ValueError(f"[!] <key> must be of type bytes ({type(key)} given)")
+        self._key = key
+        self._create_fingerprint()
+
 
     def verify_fingerprint(self):
-        logging.info(f"[*] Party's key fingerprint:\n{self.bubble_babble()}")
-        if not get_user_confirmation(
+        """Prompt the user to manually identify the fingerprint"""
+        logging.info(f"[*] Party's key fingerprint:\n{self.get_bubble_babble()}")
+        if not utils.get_user_confirmation(
             "[?] Do you recognize this SHA-256 fingerprint of the key? [y/n] "
         ):
             logging.critical(
@@ -53,18 +41,29 @@ class Fingerprint:
             )
             exit(1)
 
-    def create_fingerprint(self) -> None:
-        hasher = hashes.Hash(algorithm=self.algorithm, backend=self.backend)
+    def _create_fingerprint(self) -> None:
+        """
+        Create the fingerprint using the specified hash algorithm.
+        Private method, set key attribute to generate an up-to-date fingerprint of the key.
+        """
+        hasher = hashes.Hash(algorithm=self.algorithm)
         hasher.update(self.key)
         self.fingerprint = base64.b64encode(hasher.finalize()).decode()
 
-    def bubble_babble(self) -> str:
+    def get_bubble_babble(self) -> str:
+        """Create a pronouncable version of the fingerprint using the bubble-babble algorithm
+
+        Returns
+        -------
+        str
+            The bubble-babble encoded version of the fingerprint
+        """
         VOWELS = list('aeiouy')
         CONSONANTS = list('bcdfghklmnprstvzx')
-        mval = [ord(str(x)) for x in self.fingerprint]
+        mval = [ord(x) for x in self.fingerprint]
         seed = 1
         mlen = len(mval)
-        rounds = mlen // 2 + 1
+        rounds = (mlen // 2) + 1
         encparts = ['x']
         eextend = encparts.extend
         for i in range(rounds):

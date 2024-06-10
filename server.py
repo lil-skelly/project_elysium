@@ -50,32 +50,17 @@ class Server(utils.BaseSecureAsynchronousSocket):
                 await writer.wait_closed()
                 self.logger.info(f"Client connection from {client_ip}:{client_port} closed")
 
-
     async def establish_secure_channel(self) -> None:
         """Handles the establishment of a secure communication channel."""
         self.generate_and_serialize_key()
-
         self.logger.info(
-            f"[*] Your public key's fingerprint: {self.public_fingerprint.bubble_babble()}"
+            f"[*] Your public key's fingerprint: {self.public_fingerprint.get_bubble_babble()}"
         )
 
-        shared_key = await self.handle_key_exchange()
+        await self.get_key()
 
-        self.derived_key = HKDF(
-            algorithm=hashes.SHA256(),
-            length=self._aes_key_size // 8,
-            info=None,
-            salt=None,
-        ).derive(shared_key)
-
-        self.logger.debug("[*] Waiting for other party to verify the hashed key")
-        if await self.verify_derived_keys():
-            self.logger.info("[ESTABLISHED SHARED KEY]")
-        else:
-            logging.critical(
-                "[!!CRITICAL!!] AN ADVERSARY IS LIKELY TRYING TO HIJACK YOUR COMMUNICATIONS.\n> PLEASE INVESTIGATE *IMMEDIATELY* <"
-            )
-
+        await self.establish_key()
+        
         await self.send(self.iv)
 
         self.initialize_cipher()
@@ -92,32 +77,8 @@ class Server(utils.BaseSecureAsynchronousSocket):
 
         self.private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
         self.public_key = self.private_key.public_key()
-        
-        self.serialized_public_key = self.public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
 
         self.logger.debug("[*] Generated key pair & serialized public key")
-
-    async def handle_key_exchange(self) -> bytes:
-        _, peer_public_key = await asyncio.gather(
-            self.send(
-                self.serialized_public_key
-            ),
-            self.receive(1024),
-        )
-
-        self.logger.info("[KEY EXCHANGE] Exchanged public keys")
-        self.perform_fingerprint_verification(peer_public_key)
-
-        peer_public_key = serialization.load_pem_public_key(
-            peer_public_key, backend=default_backend()
-        )
-        shared_key = self.private_key.exchange(ec.ECDH(), peer_public_key)
-        self.logger.info("[KEY EXCHANGE] Shared secret generated")
-
-        return shared_key
 
    
 

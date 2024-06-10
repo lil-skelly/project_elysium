@@ -2,9 +2,10 @@ from abc import ABC, abstractmethod
 from typing import Optional, Literal
 import asyncio
 
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import hashes, hmac
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import (
     Cipher,
     algorithms,
@@ -44,7 +45,7 @@ class BaseSecureAsynchronousSocket(ABC):
     @property
     def public_fingerprint(self) -> Optional[fingerprint.Fingerprint]:
         if self.public_key and not self._public_fingerprint: 
-            self._public_fingerprint = fingerprint.Fingerprint(hashes.SHA256(), default_backend())
+            self._public_fingerprint = fingerprint.Fingerprint(hashes.SHA256())
             self._public_fingerprint.key = self.public_key.public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
@@ -60,8 +61,28 @@ class BaseSecureAsynchronousSocket(ABC):
     @abstractmethod
     async def establish_secure_channel(self) -> None: ...
 
-    @abstractmethod
-    async def handle_key_exchange(self) -> None: ...
+    async def handle_key_exchange(self) -> bytes:
+        serialized_public_key = self.public_key.public_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        _, peer_public_key = await asyncio.gather(
+            self.send(
+                serialized_public_key
+            ),
+            self.receive(1024),
+        )
+
+        self.logger.info("[KEY EXCHANGE] Exchanged public keys")
+        self.perform_fingerprint_verification(peer_public_key)
+
+        peer_public_key = serialization.load_pem_public_key(
+            peer_public_key
+        )
+        shared_key = self.private_key.exchange(ec.ECDH(), peer_public_key)
+        self.logger.info("[KEY EXCHANGE] Shared secret generated")
+
+        return shared_key
     
     async def receive(self, buffer: int) -> bytes:
         data = await self.reader.read(buffer)
@@ -75,7 +96,7 @@ class BaseSecureAsynchronousSocket(ABC):
         await self.writer.drain()
 
     def perform_fingerprint_verification(self, public_key: bytes) -> None:
-        fingerprint_ = fingerprint.Fingerprint(hashes.SHA256(), default_backend())
+        fingerprint_ = fingerprint.Fingerprint(hashes.SHA256())
         fingerprint_.key = public_key
         fingerprint_.verify_fingerprint()
         self.logger.info("[FINGERPRINT] Public key fingerprint verified")
@@ -123,7 +144,17 @@ class BaseSecureAsynchronousSocket(ABC):
         self.encryptor = self.cipher.encryptor()
         self.decryptor = self.cipher.decryptor()
 
-    async def verify_derived_keys(self) -> bool:
+    async def establish_key(self) -> None:
+        self.logger.debug("[*] Waiting for other party to verify the hashed key")
+        if await self.verify_key_exchange():
+            self.logger.info("[ESTABLISHED SHARED KEY]")
+        else:
+            logging.critical(
+                "[!!CRITICAL!!] AN ADVERSARY IS LIKELY TRYING TO HIJACK YOUR COMMUNICATIONS.\n> PLEASE INVESTIGATE *IMMEDIATELY* <"
+            )
+            exit(1)
+
+    async def verify_key_exchange(self) -> bool:
         key_digest = self.calculate_hash(self.derived_key, hashes.SHA256())
 
         _, peer_key_digest = await asyncio.gather(
@@ -131,3 +162,33 @@ class BaseSecureAsynchronousSocket(ABC):
         )
 
         return key_digest == peer_key_digest
+
+    async def get_key(self) -> None:
+        shared_key = await self.handle_key_exchange()
+
+        self.derived_key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=self._aes_key_size // 8,
+            info=None,
+            salt=None,
+        ).derive(shared_key)
+
+def get_user_confirmation(prompt: str) -> bool:
+    """Prompt the user with a yes/no question using the given prompt
+
+    Parameters
+    ----------
+    prompt : str
+        Prompt to present the user
+
+    Returns
+    -------
+    bool
+        Returns True if users answers "y", otherwise returns False
+    """
+    while True:
+        response = input(prompt).lower()
+        if response in {"y", "n"}:
+            return response == "y"
+        else:
+            print("[>w<] Invalid input. Enter 'y' or 'n'.")
