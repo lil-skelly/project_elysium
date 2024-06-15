@@ -34,6 +34,9 @@ class Server(utils.BaseSecureAsynchronousSocket):
         async with server:
             await server.serve_forever()
 
+    async def _exchange_iv(self) -> None:
+        await self.send(self.iv)
+
     async def handle_client(self, reader, writer) -> None:
         try:
             self.reader = reader
@@ -50,37 +53,6 @@ class Server(utils.BaseSecureAsynchronousSocket):
                 await writer.wait_closed()
                 self.logger.info(f"Client connection from {client_ip}:{client_port} closed")
 
-    async def establish_secure_channel(self) -> None:
-        """Handles the establishment of a secure communication channel."""
-        self.generate_and_serialize_key()
-        self.logger.info(
-            f"[*] Your public key's fingerprint: {self.public_fingerprint.get_bubble_babble()}"
-        )
-
-        await self.get_key()
-
-        await self.establish_key()
-        
-        await self.send(self.iv)
-
-        self.initialize_cipher()
-        self.logger.info("[ESTABLISHED SECURE COMMUNICATION CHANNEL]")
-
-    def generate_and_serialize_key(self) -> None:
-        """
-        Generates a Diffie-Hellman key pair and serializes the parameters.
-
-        This function generates a Diffie-Hellman key pair using a generator of 2 and a key size of 512 bits.
-        It then creates a SHA256 fingerprint of the public key and serializes the parameters in PEM format
-        using the PKCS3 parameter format.
-        """
-
-        self.private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-        self.public_key = self.private_key.public_key()
-
-        self.logger.debug("[*] Generated key pair & serialized public key")
-
-   
 
 def main(args) -> None:
     server = Server(args.host, args.port, logger)

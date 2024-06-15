@@ -31,22 +31,24 @@ class Client(utils.BaseSecureAsynchronousSocket):
 
         await self.handle_communication()
 
+    async def _exchange_iv(self) -> None:
+        self.iv = await self.receive(16)
+
     async def handle_communication(self) -> None:
         await self.establish_secure_channel()
 
     async def establish_secure_channel(self) -> None:
-        self.private_key = ec.generate_private_key(ec.SECP256R1())
-        self.public_key = self.private_key.public_key()
+        self.generate_key_pair()
         
         self.logger.info(f"[*] Your public key's fingerprint: {self.public_fingerprint.get_bubble_babble()}")
 
-        await self.get_key()
+        await self.get_derived_key()
 
-        await self.establish_key()
+        await self.handle_key_verification()
 
-        self.iv = await self.receive(16)
+        await self._exchange_iv()
 
-        self.initialize_cipher()
+        self.initialize_cipher(self.derived_key, self.iv)
         self.logger.info("[ESTABLISHED SECURE COMMUNICATION CHANNEL]")
 
 
