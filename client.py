@@ -18,7 +18,7 @@ parser.add_argument("--port", type=int, default=9999)
 
 args = parser.parse_args()
 
-class Client(utils.BaseSecureAsynchronousSocket):
+class Client(utils.BaseSecureAsynSock):
     def __init__(self, host: str, port: int, logger: logging.Logger) -> None:
         super().__init__(host, port, logger)
 
@@ -32,24 +32,10 @@ class Client(utils.BaseSecureAsynchronousSocket):
         await self.handle_communication()
 
     async def _exchange_iv(self) -> None:
-        self.iv = await self.receive(16)
+        self._iv = await self.receive(16)
 
     async def handle_communication(self) -> None:
         await self.establish_secure_channel()
-
-    async def establish_secure_channel(self) -> None:
-        self.generate_key_pair()
-        
-        self.logger.info(f"[*] Your public key's fingerprint: {self.public_fingerprint.get_bubble_babble()}")
-
-        await self.get_derived_key()
-
-        await self.handle_key_verification()
-
-        await self._exchange_iv()
-
-        self.initialize_cipher(self.derived_key, self.iv)
-        self.logger.info("[ESTABLISHED SECURE COMMUNICATION CHANNEL]")
 
 
 if __name__ == "__main__":

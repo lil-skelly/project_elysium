@@ -16,27 +16,84 @@ from cryptography.hazmat.primitives.ciphers import (
 import fingerprint
 import logging
 
-class CryptographicUtilities:
+class CryptoUtils(ABC):
     def __init__(self) -> None:
+        """
+        Attributes
+        ----------
+        _aes_key_size : Literal[128, 192, 256]
+            Size of the AES key in bits (default is 256).
+        _iv : Optional[bytes]
+            Initialization vector for AES-GCM mode.
+        _key : Optional[bytes]
+            AES key used for encryption/decryption.
+        _cipher : Optional[Cipher]
+            Cipher object for cryptographic operations.
+        _encryptor : Optional[CipherContext]
+            Encryptor context for AES encryption.
+        _decryptor : Optional[CipherContext]
+            Decryptor context for AES decryption.
+        """
         self._aes_key_size: Literal[128, 192, 256] = 256
-        self.iv: Optional[bytes] = None
+        self._iv: Optional[bytes] = None
+        self._key: Optional[bytes] = None
 
         self.cipher: Optional[Cipher] = None
-        self.encryptor: Optional[CipherContext] = None
-        self.decryptor: Optional[CipherContext] = None
+        self._encryptor: Optional[CipherContext] = None
+        self._decryptor: Optional[CipherContext] = None
 
     def initialize_cipher(self, key: bytes, iv: bytes) -> None:
-        self.cipher = Cipher(algorithms.AES(key), modes.GCM(iv))
-        self.encryptor = self.cipher.encryptor()
-        self.decryptor = self.cipher.decryptor()
+        """
+        Initialize the encryptor and decryptor contexts for future data encryption/decryption
+
+        Parameters
+        ----------
+        key : bytes
+            AES key
+        iv : bytes
+            Initialization vector
+        """
+        self._cipher = Cipher(algorithms.AES(self._key), modes.GCM(self._iv))
+        self._encryptor = self._cipher.encryptor()
+        self._decryptor = self._cipher.decryptor()
 
     def pack_message(self, data: bytes) -> bytes:
+        """
+        Pack data for transmission by encrypting and signing it.
+
+        Parameters
+        ----------
+        data : bytes
+            Data to be packed.
+
+        Returns
+        -------
+        bytes
+            Encrypted data with appended HMAC signature.
+        """
         ciphertext = self.cipher_operation(data, self.encryptor)
-        signature = self.sign_with_hmac(ciphertext, self.derived_key, hashes.SHA256())
+        signature = self.sign_with_hmac(ciphertext, self._key, hashes.SHA256())
 
         return ciphertext + signature
 
     def sign_with_hmac(self, data: bytes, key: bytes, algorithm: hashes.HashAlgorithm) -> bytes:
+        """
+        Sign `data` using HMAC with the given `key` and hash `algorithm`
+
+        Parameters
+        ----------
+        data : bytes
+            Data to sign
+        key : bytes
+            Key to sign data with
+        algorithm : hashes.HashAlgorithm
+            Hashing algorithm to use
+
+        Returns
+        -------
+        bytes
+            Signature of the data
+        """
         hmac_digest = hmac.HMAC(key, algorithm)
         hmac_digest.update(data)
         signature = hmac_digest.finalize()
@@ -62,6 +119,21 @@ class CryptographicUtilities:
         return result
     
     def calculate_hash(self, data: bytes, algorithm: hashes.HashAlgorithm) -> bytes:
+        """
+        Calculate the hash of the given data using the specified hashing algorithm.
+
+        Parameters
+        ----------
+        data : bytes
+            Data to hash.
+        algorithm : hashes.HashAlgorithm
+            Hashing algorithm to use.
+
+        Returns
+        -------
+        bytes
+            Hash value of the data.
+        """
         digest = hashes.Hash(algorithm)
         digest.update(data)
         signature = digest.finalize()
@@ -69,8 +141,35 @@ class CryptographicUtilities:
         return signature
 
 
-class BaseAsynchronousSocket(ABC):
+class BaseAsyncSock(ABC):
+    """
+    Base class for an asynchronous socket.
+
+    This abstract base class provides a framework for establishing and managing
+    an asynchronous socket connection. It includes methods for starting the socket,
+    sending data, and receiving data. Derived classes should implement the 
+    `start_socket` method to handle the specifics of establishing the connection.
+    """
     def __init__(self, host: str, port: str, logger: logging.Logger) -> None:
+        """    
+        Parameters
+        ----------
+        host : str
+            The hostname or IP address of the socket server.
+        port : str
+            The port number of the socket server.
+        logger : logging.Logger
+            Logger instance for logging socket events.
+
+        Attributes:
+        -----------
+        host (str): The hostname or IP address of the socket server.
+        port (str): The port number of the socket server.
+        logger (logging.Logger): Logger instance for logging socket events.
+        reader (Optional[asyncio.StreamReader]): Asynchronous stream reader for the socket.
+        writer (Optional[asyncio.StreamWriter]): Asynchronous stream writer for the socket.
+
+        """
         self.host = host
         self.port = port
         self.logger = logger
@@ -80,8 +179,24 @@ class BaseAsynchronousSocket(ABC):
 
     @abstractmethod
     async def start_socket(self) -> None: ...
+    """Abstract method to start the socket connection. Must be implemented by derived classes."""
 
     async def receive(self, buffer: int) -> bytes:
+        """
+        Asynchronously receives data from the socket.
+        
+        Parameters
+        ----------
+        buffer : int
+            The maximum number of bytes to read.
+            
+        Returns
+        -------
+        bytes
+            The data received from the socket.
+        
+        Logs a warning if no data is received.
+        """
         data = await self.reader.read(buffer)
         if not data:
             self.logger.warning("[RECEIVE] No data received from peer")
@@ -89,11 +204,19 @@ class BaseAsynchronousSocket(ABC):
         return data
 
     async def send(self, data: bytes) -> None:
+        """
+        Asynchronously sends data through the socket.
+        
+        Parameters
+        ----------
+        data : bytes
+            The data to be sent.
+        """
         self.writer.write(data)
         await self.writer.drain()
 
 
-class BaseSecureAsynchronousSocket(BaseAsynchronousSocket, CryptographicUtilities):
+class BaseSecureAsynSock(BaseAsyncSock, CryptoUtils):
     """
     Abstract class representing the base for an asynchronous socket with cryptographic utilities.
     Gathers common cryptographic functionality found in both the server and the client and provides an outline
@@ -101,13 +224,12 @@ class BaseSecureAsynchronousSocket(BaseAsynchronousSocket, CryptographicUtilitie
     """
     def __init__(self, host: str, port: str, logger: logging.Logger) -> None:
         super().__init__(host, port, logger)
-        CryptographicUtilities.__init__(self)
+        CryptoUtils.__init__(self)
 
 
         self.public_key: Optional[ec.EllipticCurvePublicKey] = None
         self.private_key: Optional[ec.EllipticCurvePrivateKey] = None
 
-        self.derived_key: Optional[bytes] = None
         self._public_fingerprint: Optional[fingerprint.Fingerprint] = None
 
     @property
@@ -145,7 +267,7 @@ class BaseSecureAsynchronousSocket(BaseAsynchronousSocket, CryptographicUtilitie
         
         await self._exchange_iv()
 
-        self.initialize_cipher(self.derived_key, self.iv)
+        self.initialize_cipher(self._key, self._iv)
         self.logger.info("[ESTABLISHED SECURE COMMUNICATION CHANNEL]")
 
     async def handle_key_exchange(self) -> bytes:
@@ -188,7 +310,7 @@ class BaseSecureAsynchronousSocket(BaseAsynchronousSocket, CryptographicUtilitie
             exit(1)
 
     async def verify_key_exchange(self) -> bool:
-        key_digest = self.calculate_hash(self.derived_key, hashes.SHA256())
+        key_digest = self.calculate_hash(self._key, hashes.SHA256())
 
         _, peer_key_digest = await asyncio.gather(
             self.send(key_digest), self.receive(32)  # SHA256
@@ -199,7 +321,7 @@ class BaseSecureAsynchronousSocket(BaseAsynchronousSocket, CryptographicUtilitie
     async def get_derived_key(self) -> None:
         shared_key = await self.handle_key_exchange()
 
-        self.derived_key = HKDF(
+        self._key = HKDF(
             algorithm=hashes.SHA256(),
             length=self._aes_key_size // 8,
             info=None,
@@ -221,7 +343,7 @@ def get_user_confirmation(prompt: str) -> bool:
         Returns True if users answers "y", otherwise returns False
     """
     while True:
-        response = input(prompt).lower()
+        response = input(prompt).lower().strip()
         if response in {"y", "n"}:
             return response == "y"
         else:

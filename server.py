@@ -23,10 +23,10 @@ parser.add_argument("--port", type=int, default=9999)
 args = parser.parse_args()
 
 
-class Server(utils.BaseSecureAsynchronousSocket):
+class Server(utils.BaseSecureAsynSock):
     def __init__(self, host: str, port: int, logger: logging.Logger) -> None:
         super().__init__(host, port, logger)
-        self.iv = secrets.token_bytes(16)
+        self._iv = secrets.token_bytes(16)
 
     async def start_socket(self) -> None:
         server = await asyncio.start_server(self.handle_client, self.host, self.port)
@@ -35,7 +35,7 @@ class Server(utils.BaseSecureAsynchronousSocket):
             await server.serve_forever()
 
     async def _exchange_iv(self) -> None:
-        await self.send(self.iv)
+        await self.send(self._iv)
 
     async def handle_client(self, reader, writer) -> None:
         try:
