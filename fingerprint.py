@@ -26,7 +26,6 @@ class Fingerprint:
         self._key = key
         self._create_fingerprint()
 
-
     def verify_fingerprint(self):
         """Prompt the user to manually identify the fingerprint"""
         logging.info(f"[*] Party's key fingerprint:\n{self.get_bubble_babble()}")
