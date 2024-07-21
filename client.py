@@ -31,6 +31,10 @@ class Client(utils.BaseSecureAsynSock):
 
         await self.handle_communication()
 
+        msg = self.pack_message(b"hey i am good gay guy")
+        print(msg)
+        decrypted_msg = self.unpack_message(msg)
+        print(decrypted_msg)
     async def _exchange_iv(self) -> None:
         self._iv = await self.receive(16)
 

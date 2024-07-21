@@ -46,6 +46,8 @@ class CryptoUtils(ABC):
         self.cipher: Optional[Cipher] = None
         self._encryptor: Optional[CipherContext] = None
         self._decryptor: Optional[CipherContext] = None
+        self._hmac_context: Optional[hashes.HashContext] = None
+
 
     def initialize_cipher(self, key: bytes, iv: bytes) -> None:
         """
@@ -58,9 +60,12 @@ class CryptoUtils(ABC):
         iv
             Initialization vector
         """
+        self._hmac_context: hmac.HMAC = hmac.HMAC(self._key, hashes.SHA256())
+        
         self._cipher = Cipher(algorithms.AES(self._key), modes.GCM(self._iv))
         self._encryptor = self._cipher.encryptor()
         self._decryptor = self._cipher.decryptor()
+
 
     def pack_message(self, data: bytes) -> bytes:
         """
@@ -76,34 +81,41 @@ class CryptoUtils(ABC):
         bytes
             Encrypted data with appended HMAC signature.
         """
-        ciphertext = self.cipher_operation(data, self.encryptor)
-        signature = self.sign_with_hmac(ciphertext, self._key, hashes.SHA256())
+        ciphertext = self.cipher_operation(data, self._encryptor)
+        signature = self.sign_with_hmac(ciphertext)
 
         return ciphertext + signature
+    
+    def unpack_message(self, data: bytes) -> bytes:
+        signature = data[-32:] # signature (32 bytes) is appended at the end of the ciphertext
+        
+        hmac_ctx = self._hmac_context.copy()
+        hmac_ctx.update(data[:-32])
+        hmac_ctx.verify(signature)
+        
+        decrypted_data = self.cipher_operation(data[:-32], self._decryptor)
+        return decrypted_data
 
     def sign_with_hmac(
-        self, data: bytes, key: bytes, algorithm: hashes.HashAlgorithm
+        self, data: bytes
     ) -> bytes:
         """
-        Sign `data` using HMAC with the given `key` and hash `algorithm`
+        Sign `data` using the instance's HMAC context.
+        To create a HMAC context call initialize_cipher
 
         Parameters
         ----------
         data
             Data to sign
-        key
-            Key to sign data with
-        algorithm
-            Hashing algorithm to use
 
         Returns
         -------
         bytes
             Signature of the data
-        """
-        hmac_digest = hmac.HMAC(key, algorithm)
-        hmac_digest.update(data)
-        signature = hmac_digest.finalize()
+        """        
+        hmac_ctx = self._hmac_context.copy()
+        hmac_ctx.update(data)
+        signature = hmac_ctx.finalize()
 
         return signature
 
@@ -278,7 +290,6 @@ class BaseSecureAsynSock(BaseAsyncSock, CryptoUtils):
 
     @abstractmethod
     async def _exchange_iv(self) -> None: ...
-
     """Abstract method which handles the exchange of the initialization vector between parties"""
 
     def generate_key_pair(self) -> None:
@@ -384,6 +395,11 @@ class BaseSecureAsynSock(BaseAsyncSock, CryptoUtils):
             salt=None,
         ).derive(shared_key)
 
+    async def communication_loop(self) -> None:
+        """
+        By the time this function is called, both parties have established a common AES key.
+        This function implements the actual messaging between parties.
+        """
 
 def get_user_confirmation(prompt: str) -> bool:
     """Prompt the user with a yes/no question using the given prompt
